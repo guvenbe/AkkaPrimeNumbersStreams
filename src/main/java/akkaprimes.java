@@ -3,6 +3,7 @@ import akka.NotUsed;
 import akka.actor.typed.ActorSystem;
 import akka.actor.typed.javadsl.Behaviors;
 import akka.stream.javadsl.Flow;
+import akka.stream.javadsl.Keep;
 import akka.stream.javadsl.Sink;
 import akka.stream.javadsl.Source;
 
@@ -13,13 +14,22 @@ import java.util.List;
 import java.util.Random;
 import java.util.concurrent.CompletionStage;
 
+//1st slow it down
 public class akkaprimes {
     public static class BigPrimes {
+
+
         public static void main(String[] args) {
+            long start = System.currentTimeMillis();
             ActorSystem<Integer> actorSystem = ActorSystem.create(Behaviors.empty(), "actorsystem");
-            Source<Integer, NotUsed> source = Source.range(1, 10);
+            Source<Integer, NotUsed> source = Source.range(1, 100);
+            
             Flow<Integer, BigInteger, NotUsed> bigIntegerGenerator = Flow.of(Integer.class)
-                    .map(input -> new BigInteger(2000, new Random()));
+                    .map(input -> {
+                        BigInteger result = new BigInteger(3000, new Random());
+                        System.out.println("Big Integer : " + result);
+                        return result;
+                    });
             Flow<BigInteger, BigInteger, NotUsed> primeGenerator = Flow.of(BigInteger.class)
                     .map(input -> {
                         BigInteger prime = input.nextProbablePrime();
@@ -38,7 +48,23 @@ public class akkaprimes {
 
             Sink<List<BigInteger>, CompletionStage<Done>> printSink = Sink.foreach(System.out::println);
 
-            source.via(bigIntegerGenerator).via(primeGenerator).via(createGroup).to(printSink).run(actorSystem);
+            CompletionStage<Done> result = source
+                    .via(bigIntegerGenerator)
+                    .async()
+                    .via(primeGenerator)
+                    .async()
+                    .via(createGroup)
+                    .toMat(printSink, Keep.right())
+                    .run(actorSystem);
+
+            result.whenComplete((value, throwable) ->{
+                long end = System.currentTimeMillis();
+                System.out.println("The application ran in " + (end -start) + " ms." );
+                actorSystem.terminate();
+
+            });
+
+            System.out.println("");
         }
     }
 }
