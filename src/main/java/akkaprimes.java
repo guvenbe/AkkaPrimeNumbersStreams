@@ -2,6 +2,8 @@ import akka.Done;
 import akka.NotUsed;
 import akka.actor.typed.ActorSystem;
 import akka.actor.typed.javadsl.Behaviors;
+import akka.stream.Attributes;
+import akka.stream.OverflowStrategy;
 import akka.stream.javadsl.Flow;
 import akka.stream.javadsl.Keep;
 import akka.stream.javadsl.Sink;
@@ -12,6 +14,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Random;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
 //1st slow it down
@@ -36,6 +39,18 @@ public class akkaprimes {
                         System.out.println("Prime : " + prime);
                         return prime;
                     });
+
+            Flow<BigInteger, BigInteger, NotUsed> primeGeneratorAsync = Flow.of(BigInteger.class)
+                    //.mapAsync(4,input -> {
+                    .mapAsyncUnordered(4,input -> {
+                        CompletableFuture<BigInteger> futurePrime = new CompletableFuture<>();
+                        futurePrime.completeAsync(() ->{
+                            BigInteger prime = input.nextProbablePrime();
+                            System.out.println("Prime : " + prime);
+                            return prime;
+                        });
+                        return futurePrime;
+                    });
             Flow<BigInteger, List<BigInteger>, NotUsed> createGroup =
                     Flow.of(BigInteger.class)
                             .grouped(10)
@@ -50,8 +65,11 @@ public class akkaprimes {
 
             CompletionStage<Done> result = source
                     .via(bigIntegerGenerator)
+                    .buffer(16, OverflowStrategy.backpressure())
                     .async()
-                    .via(primeGenerator)
+                    .via(primeGeneratorAsync
+                            .addAttributes(Attributes.inputBuffer(16,32))
+                    )
                     .async()
                     .via(createGroup)
                     .toMat(printSink, Keep.right())
